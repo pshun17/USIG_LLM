@@ -452,6 +452,141 @@ col_widths_ai = {1:12, 2:28, 3:16, 4:10, 5:7, 6:18, 7:20, 8:16, 9:12,
 for ci, w in col_widths_ai.items():
     ws.column_dimensions[get_column_letter(ci)].width = w
 
+# ── Macro View 섹션 (Score_AI 시트 오른쪽, col 15~18) ────────────────────────
+import re as _re
+from ai_macro_score import SUBGROUP_SCORE_MAP as _SUBMAP
+
+# ai_macro_score.py 에서 인라인 코멘트 추출
+_rationale = {}
+_ai_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai_macro_score.py')
+with open(_ai_src, 'r', encoding='utf-8') as _f:
+    for _line in _f:
+        _m = _re.match(r"\s+'([^']+)':\s*([-\d.]+),\s*#\s*(.+)", _line)
+        if _m:
+            _rationale[_m.group(1)] = _m.group(3).strip()
+
+MV_COL = len(hdrs_ai) + 2   # 한 칸 띄우고 시작 (col 15)
+
+FILL_MV_HDR  = PatternFill('solid', fgColor='4A148C')   # 진보라
+FILL_MV_BG   = PatternFill('solid', fgColor='F3E5F5')   # 연보라
+FILL_MV_POS  = PatternFill('solid', fgColor='C8E6C9')   # 연초록
+FILL_MV_NEG  = PatternFill('solid', fgColor='FFCDD2')   # 연빨강
+FILL_MV_NEUT = PatternFill('solid', fgColor='F5F5F5')   # 연회색
+FILL_MV_THEME= PatternFill('solid', fgColor='311B92')   # 더 진한 보라 (테마)
+
+# ── 매크로 배경 4가지 테마 ──────────────────────────────────────────────────
+MACRO_THEMES = [
+    (
+        "① Fed Policy & Tariff Inflation Risk",
+        "[Current] Fed is in an easing cycle (cumulative -100bp since Sep 2024), but Trump's sweeping tariffs (10% universal + 25% autos/steel/aluminum + sector-specific) are reigniting inflation fears. Core PCE remains sticky above 2.5%, and market pricing for 2025 cuts has been sharply pared back.\n"
+        "[Risk] If tariffs fully pass through to CPI, the Fed may be forced to pause or reverse — a stagflation-lite scenario where growth slows but rates stay high. This is the key tail risk for credit.\n"
+        "[Positioning] Prefer shorter duration, high-carry defensive names. Avoid cyclicals with thin margins and high import cost exposure. Favor regulated utilities, domestic healthcare, and infrastructure where pricing power is intact."
+    ),
+    (
+        "② IG Spread Level — Historically Tight, Carry Dominates",
+        "[Current] US IG OAS is near post-GFC tights (~85-95bp range as of Q1 2026), implying limited price appreciation upside from further compression. The risk/reward for spread tightening is asymmetric — downside (widening) is larger than upside.\n"
+        "[Implication] In a tight-spread environment, total return is increasingly driven by carry (coupon income) rather than capital gains. Selection alpha comes from picking bonds with superior carry-to-risk profiles within each rating/maturity bucket.\n"
+        "[Positioning] Bond_TR Score emphasizes carry (YTW-based) and DP rating buffer — both reward high-coupon, fundamentally cheap bonds. AI_Macro reinforces by avoiding sectors where spread widening risk is elevated (autos, retail, leveraged cyclicals)."
+    ),
+    (
+        "③ Yield Curve — Steepening Pressure, Front-End Anchored",
+        "[Current] The UST curve has been bear-steepening, with 10Y-2Y spread widening as fiscal deficit concerns push up term premium. The 2-year is anchored by near-term Fed expectations, while 30-year yields face upward pressure from supply (Treasury issuance) and inflation uncertainty.\n"
+        "[Maturity Sweet Spot] OAD 4-7 years (approximately 5-7Y bonds): captures meaningful carry and spread duration without excessive long-end term premium risk. OAD 7-10Y remains acceptable. Bonds with OAD 13Y+ are penalized — duration extension into an unfavorable part of the curve.\n"
+        "[Positioning] Maturity_Score reflects this view: peak score at OAD 4-7 (+1.0), declining sharply for 13Y+ (-0.50 to -1.00). Avoid long-dated BBB bonds where both spread widening and rate risk are elevated simultaneously."
+    ),
+    (
+        "④ Tariff Exposure by Sector — Winners & Losers",
+        "[Direct Tariff Losers] Autos & Parts: 25% import tariff on finished vehicles + parts supply chain disruption → Ford, GM suppliers, Japanese/Korean OEMs facing significant cost inflation and potential volume declines. Score: -0.70 to -0.90.\n"
+        "Retail (Apparel, Dept Stores, Electronics): High China-sourced inventory → margin compression. Retailers with weak pricing power (mid-tier dept stores, specialty apparel) are most at risk. Score: -0.40 to -0.60.\n"
+        "Consumer Discretionary Manufacturing (Toys, Footwear, Motorcycles): Heavily Asia-manufactured → direct tariff impact on COGS. Score: -0.40 to -0.55.\n"
+        "[Relative Winners] Domestic Infrastructure & Defense: No tariff exposure, government contract revenue, benefiting from reshoring/defense spending tailwinds. Score: +0.35 to +0.40.\n"
+        "Regulated Utilities (Electric, Gas, Water): Pass-through pricing to ratepayers, recession-resistant demand, largely immune to trade policy. Score: +0.75 to +0.85.\n"
+        "Domestic Healthcare (Hospitals, HMOs, Labs): Primarily domestic service delivery, no import exposure, defensive demand. Score: +0.60 to +0.75.\n"
+        "Steel Producers (domestic): Protected by 25% tariff on imported steel — domestic producers gain pricing power. Score: +0.20.\n"
+        "[Monitoring] Semiconductors: US-China export controls tightening; supply chain restructuring ongoing. Currently neutral-to-negative pending clarity on CHIPS Act implementation and China retaliation scope."
+    ),
+]
+
+# 타이틀
+ws.merge_cells(start_row=1, start_column=MV_COL, end_row=1, end_column=MV_COL+3)
+tc = ws.cell(row=1, column=MV_COL,
+    value='MACRO VIEW  |  AI Sector Score Rationale  |  Based on April 2026 macro environment')
+tc.font = Font(name='Arial', bold=True, size=10, color='FFFFFF')
+tc.fill = FILL_MV_HDR
+tc.alignment = Alignment(horizontal='center', vertical='center')
+
+# 테마 블록 (row 2~5) — 라벨(col MV_COL) + 본문(col MV_COL+1 ~ MV_COL+3 merged)
+for ti, (theme_label, theme_body) in enumerate(MACRO_THEMES):
+    tr = ti + 2
+    lc = ws.cell(row=tr, column=MV_COL, value=theme_label)
+    lc.font = Font(name='Arial', bold=True, size=9, color='FFFFFF')
+    lc.fill = FILL_MV_THEME
+    lc.alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
+
+    ws.merge_cells(start_row=tr, start_column=MV_COL+1, end_row=tr, end_column=MV_COL+3)
+    bc = ws.cell(row=tr, column=MV_COL+1, value=theme_body)
+    bc.font = Font(name='Arial', size=8.5)
+    bc.fill = FILL_MV_BG
+    bc.alignment = Alignment(vertical='top', wrap_text=True)
+
+# 서브그룹 테이블 헤더 (row 6)
+mv_subhdr_row = 6
+for ci_off, (hdr_txt, hdr_fill) in enumerate([
+    ('Industry Subgroup', FILL_ID),
+    ('Score',             FILL_AI),
+    ('Rationale',         FILL_COMP),
+    ('Direction',         FILL_AI),
+]):
+    c = ws.cell(row=mv_subhdr_row, column=MV_COL+ci_off, value=hdr_txt)
+    c.font = Font(name='Arial', bold=True, size=9)
+    c.fill = hdr_fill
+    c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+# 서브그룹 데이터 (score 내림차순 정렬)
+_sorted_subs = sorted(_SUBMAP.items(), key=lambda x: x[1], reverse=True)
+for si, (subgroup, score) in enumerate(_sorted_subs):
+    dr = mv_subhdr_row + 1 + si
+    rationale_txt = _rationale.get(subgroup, '')
+    direction = ('▲ Overweight' if score > 0.3
+                 else '▼ Underweight' if score < -0.3
+                 else '— Neutral')
+
+    sc = ws.cell(row=dr, column=MV_COL, value=subgroup)
+    sc.font = Font(name='Arial', size=8.5)
+    sc.alignment = Alignment(vertical='center')
+
+    vc = ws.cell(row=dr, column=MV_COL+1, value=round(score, 2))
+    vc.number_format = '0.00'
+    vc.font = Font(name='Arial', size=8.5, bold=True)
+    vc.alignment = Alignment(horizontal='center', vertical='center')
+
+    rc = ws.cell(row=dr, column=MV_COL+2, value=rationale_txt)
+    rc.font = Font(name='Arial', size=8.5)
+    rc.alignment = Alignment(vertical='center', wrap_text=True)
+
+    dc = ws.cell(row=dr, column=MV_COL+3, value=direction)
+    dc.font = Font(name='Arial', size=8.5,
+                   color=('375623' if score > 0.3 else '9C0006' if score < -0.3 else '555555'))
+    dc.alignment = Alignment(horizontal='center', vertical='center')
+
+    # 행 배경색
+    row_fill = (FILL_MV_POS if score > 0.3 else
+                FILL_MV_NEG if score < -0.3 else FILL_MV_NEUT)
+    for col_off in range(4):
+        ws.cell(row=dr, column=MV_COL+col_off).fill = row_fill
+
+# 매크로 뷰 열 너비
+ws.column_dimensions[get_column_letter(MV_COL)].width   = 32   # theme label / subgroup
+ws.column_dimensions[get_column_letter(MV_COL+1)].width = 7    # score
+ws.column_dimensions[get_column_letter(MV_COL+2)].width = 80   # rationale (wide for theme text)
+ws.column_dimensions[get_column_letter(MV_COL+3)].width = 15
+ws.row_dimensions[1].height = 22
+THEME_ROW_HEIGHTS = [52, 60, 60, 100]   # 테마별 행 높이 (텍스트 길이 반영)
+for ti, rh in enumerate(THEME_ROW_HEIGHTS):
+    ws.row_dimensions[ti+2].height = rh
+ws.row_dimensions[mv_subhdr_row].height = 18
+print(f"  Score_AI Macro View: {len(_sorted_subs)} subgroups written")
+
 # ─── Sheet 6: Score_Integrated ────────────────────────────────────────────────
 print("  Creating Score_Integrated...")
 ws = _make_sheet(wb, 'Score_Integrated')
