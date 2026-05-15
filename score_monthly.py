@@ -58,7 +58,8 @@ m = re.search(r'(\d{4}_\d{2}_\d{2})', os.path.basename(IN_FILE))
 DATE_TAG = m.group(1) if m else 'UNKNOWN'
 AS_OF    = date(int(DATE_TAG[:4]), int(DATE_TAG[5:7]), int(DATE_TAG[8:10])) if m else date.today()
 AS_OF_DT = datetime(AS_OF.year, AS_OF.month, AS_OF.day, tzinfo=timezone.utc)
-OUT_FILE = IN_FILE.replace('.xlsx', '_SCORED.xlsx')
+OUT_FILE     = IN_FILE.replace('.xlsx', '_SCORED.xlsx')
+OUT_FILE_BSB = IN_FILE.replace('.xlsx', '_SCORED.xlsb')
 
 print(f"\n{'='*65}")
 print(f"  USIG Monthly Scoring  |  {os.path.basename(IN_FILE)}")
@@ -877,11 +878,30 @@ for ri, row in df_out.iterrows():
 ws.freeze_panes = 'A3'
 ws.auto_filter.ref = f'A2:{get_column_letter(len(keep_cols))}2'
 
-# ── Save ──────────────────────────────────────────────────────
+# ── Save (xlsx → xlsb 자동 변환) ─────────────────────────────
 wb.save(OUT_FILE)
+print(f"\n  xlsx saved: {os.path.basename(OUT_FILE)}  ({os.path.getsize(OUT_FILE)/1024/1024:.1f} MB)")
+print(f"  Converting to .xlsb ...")
+
+_xlsb_ok = False
+try:
+    import win32com.client as _win32
+    _xl = _win32.Dispatch('Excel.Application')
+    _xl.Visible = False
+    _xl.DisplayAlerts = False
+    _wb = _xl.Workbooks.Open(os.path.abspath(OUT_FILE))
+    _wb.SaveAs(os.path.abspath(OUT_FILE_BSB), FileFormat=50)  # 50 = xlExcel12 (.xlsb)
+    _wb.Close(False)
+    _xl.Quit()
+    _xlsb_ok = True
+    os.remove(OUT_FILE)          # 중간 xlsx 삭제, xlsb가 최종본
+    OUT_FILE = OUT_FILE_BSB
+except Exception as _e:
+    print(f"  [경고] xlsb 변환 실패 ({_e}) → xlsx 유지")
 
 print(f"\n{'='*65}")
 print(f"  Saved: {OUT_FILE}")
+print(f"  Size : {os.path.getsize(OUT_FILE)/1024/1024:.1f} MB")
 print(f"  Sheets: {wb.sheetnames}")
 print(f"\n  Score Summary:")
 print(f"    Bond_TR_Score    : {df_out['Bond_TR_Score'].notna().sum():>5,} bonds")

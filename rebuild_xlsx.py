@@ -11,7 +11,8 @@ warnings.filterwarnings('ignore')
 BASE = r'C:\Users\sh.park\Documents\USIG_LLM'
 AS_OF = '2026-05-11'
 SRC = BASE + r'\LUACSTAT_2026_05_11_SCORED.xlsx'
-OUT = SRC  # 덮어쓰기
+OUT     = SRC  # 중간 xlsx
+OUT_BSB = SRC.replace('.xlsx', '.xlsb')  # 최종 xlsb
 
 print('Reading data...')
 df_out = pd.read_excel(SRC, sheet_name='Detail_Scored', header=1)
@@ -292,9 +293,24 @@ for ri,row in df_out.iterrows():
 ws.freeze_panes='A3'
 ws.auto_filter.ref=f'A2:{get_column_letter(len(keep_cols))}2'
 
-print('Saving...')
+print('Saving xlsx...')
 wb.save(OUT)
-size=os.path.getsize(OUT)
+print(f'  xlsx: {os.path.getsize(OUT)/1024/1024:.1f} MB  →  converting to .xlsb ...')
+
+try:
+    import win32com.client as _win32
+    _xl = _win32.Dispatch('Excel.Application')
+    _xl.Visible = False
+    _xl.DisplayAlerts = False
+    _wb = _xl.Workbooks.Open(os.path.abspath(OUT))
+    _wb.SaveAs(os.path.abspath(OUT_BSB), FileFormat=50)
+    _wb.Close(False)
+    _xl.Quit()
+    os.remove(OUT)
+    OUT = OUT_BSB
+    print(f'  xlsb: {os.path.getsize(OUT)/1024/1024:.1f} MB')
+except Exception as e:
+    print(f'  [경고] xlsb 변환 실패 ({e}) → xlsx 유지')
+
 print(f'Saved: {OUT}')
-print(f'Size: {size/1024/1024:.1f} MB  (was 11.3 MB)')
 print('DONE')
