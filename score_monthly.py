@@ -621,24 +621,39 @@ def whdrs(ws, hdrs, id_s, comp_s, sc_s):
         c.fill = FILL_SCORE if h in sc_s else (FILL_COMP if h in comp_s else FILL_ID)
 
 def wrows(ws, hdrs, sc_s, fmt, flag_col=None, color_cols=None):
+    # 헤더 행에 number_format 미리 설정 (열 전체 적용 → 셀마다 반복 불필요)
+    fmt_ci = {ci: fmt[h] for ci, h in enumerate(hdrs, 1) if h in fmt}
+    for ci, nf in fmt_ci.items():
+        ws.column_dimensions[get_column_letter(ci)].number_format = nf
+
     for ri, row in df_out.iterrows():
         er = ri + 3
+        flag_val = str(_v(row.get(flag_col, '')) or '') if flag_col else ''
+        is_top3  = flag_val == '★★★ TOP3'
+        is_top10 = flag_val == '★★ TOP10'
+        is_top25 = flag_val == '★ TOP25'
+
         for ci, h in enumerate(hdrs, 1):
             val = _v(row.get(h, np.nan) if h in row.index else np.nan)
             c = ws.cell(row=er, column=ci)
-            c.value = val; c.font = Font(name='Arial', size=10)
-            if h in sc_s:    c.fill = PatternFill('solid', fgColor='F4FFF4')
-            if h in fmt:     c.number_format = fmt[h]
+            c.value = val
+            # number format (필요한 셀만)
+            if ci in fmt_ci:
+                c.number_format = fmt_ci[ci]
+            # TOP 플래그 열 서식
             if flag_col and h == flag_col:
-                flag = str(val) if val else ''; c.value = flag
-                if   flag == '★★★ TOP3':  c.font = FONT_TOP3;  c.fill = FILL_TOP3
-                elif flag == '★★ TOP10':  c.font = FONT_TOP10; c.fill = FILL_TOP10
-                elif flag == '★ TOP25':   c.font = FONT_TOP25; c.fill = FILL_TOP25
+                c.value = flag_val
+                if   is_top3:  c.font = FONT_TOP3;  c.fill = FILL_TOP3
+                elif is_top10: c.font = FONT_TOP10; c.fill = FILL_TOP10
+                elif is_top25: c.font = FONT_TOP25; c.fill = FILL_TOP25
+                continue
+            # score 열 색상 (TOP 행만 추가 색상, 나머지는 양수/음수만)
             if color_cols and h in color_cols and val is not None:
                 try:
                     fv = float(val)
                     if not math.isnan(fv):
-                        c.fill = FILL_POS if fv > 0.3 else (FILL_NEG if fv < -0.3 else c.fill)
+                        if   fv > 0.3:  c.fill = FILL_POS
+                        elif fv < -0.3: c.fill = FILL_NEG
                 except: pass
 
 def wfin(ws, n, widths):
@@ -697,28 +712,30 @@ sc_c = ['Sentiment_Score_clean']
 hdrs = id_c + cp_c
 wtitle(ws,'Sentiment Score  │  Yahoo/Google News (VADER, recency-weighted) + Google Trends',len(hdrs))
 whdrs(ws, hdrs, set(id_c), set(cp_c), set(sc_c))
+sent_fmt = {'News_Sentiment_Raw':'0.00000','News_Article_Count':'0','Google_News_Count':'0',
+            'Top_Headline_Score':'0.0000','Trends_Momentum':'0.0000','Trends_Factor':'0.0000',
+            'Sentiment_Score':'0.0000','Sentiment_Score_clean':'0.0000'}
+sent_fmt_ci = {ci: sent_fmt[h] for ci, h in enumerate(hdrs, 1) if h in sent_fmt}
+flag_ci   = next((ci for ci, h in enumerate(hdrs,1) if h == 'News_Generic_Flag'), None)
+hline_ci  = next((ci for ci, h in enumerate(hdrs,1) if h == 'Top_Headline'), None)
+hlsco_ci  = next((ci for ci, h in enumerate(hdrs,1) if h == 'Top_Headline_Score'), None)
 for ri, row in df_out.iterrows():
     er = ri + 3
     for ci, h in enumerate(hdrs, 1):
         val = _v(row.get(h, np.nan) if h in row.index else np.nan)
-        c = ws.cell(row=er, column=ci); c.value = val; c.font = Font(name='Arial', size=10)
-        fmt_map = {'News_Sentiment_Raw':'0.00000','News_Article_Count':'0','Google_News_Count':'0',
-                   'Top_Headline_Score':'0.0000','Trends_Momentum':'0.0000','Trends_Factor':'0.0000',
-                   'Sentiment_Score':'0.0000','Sentiment_Score_clean':'0.0000'}
-        if h in fmt_map: c.number_format = fmt_map[h]
-        if h in sc_c: c.fill = PatternFill('solid', fgColor='F4FFF4')
-        if h == 'News_Generic_Flag':
+        c = ws.cell(row=er, column=ci); c.value = val
+        if ci in sent_fmt_ci: c.number_format = sent_fmt_ci[ci]
+        if flag_ci and ci == flag_ci:
             flag = str(val) if val else ''
-            if flag == 'GENERIC (invalidated)':
-                c.fill = FILL_GENERIC; c.font = Font(name='Arial', size=10, bold=True, color='CC0000')
-            elif flag == 'No news data':
-                c.fill = FILL_NODATA;  c.font = Font(name='Arial', size=10, color='888888')
-        if h == 'Top_Headline': c.alignment = Alignment(wrap_text=True, vertical='center')
-        if h == 'Top_Headline_Score' and val is not None:
+            if   flag == 'GENERIC (invalidated)': c.fill = FILL_GENERIC; c.font = Font(bold=True, color='CC0000', size=10)
+            elif flag == 'No news data':           c.fill = FILL_NODATA
+        if hline_ci and ci == hline_ci:
+            c.alignment = Alignment(wrap_text=True, vertical='center')
+        if hlsco_ci and ci == hlsco_ci and val is not None:
             try:
                 fv = float(val)
-                if   fv >=  0.5: c.fill = PatternFill('solid',fgColor='C6EFCE'); c.font=Font(name='Arial',size=10,bold=True,color='375623')
-                elif fv <= -0.5: c.fill = PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name='Arial',size=10,bold=True,color='9C0006')
+                if   fv >=  0.5: c.fill = PatternFill('solid',fgColor='C6EFCE'); c.font=Font(bold=True,color='375623',size=10)
+                elif fv <= -0.5: c.fill = PatternFill('solid',fgColor='FFC7CE'); c.font=Font(bold=True,color='9C0006',size=10)
             except: pass
 wfin(ws,len(hdrs),{1:12,2:28,3:16,4:10,5:12,6:13,7:10,8:12,9:22,10:60,11:11,12:13,13:13,14:13,15:13})
 
@@ -740,21 +757,25 @@ for ci, h in enumerate(hdrs_ai, 1):
     c.fill = FILL_AI if h in sc_c_ai else (FILL_COMP if h in cp_c_ai else FILL_ID)
 fmt_ai = {'OAD':'0.00','AI_Sector_Score':'0.00','AI_Maturity_Score':'0.00',
           'AI_RatingBuf_Score':'0.00','AI_Macro_Score':'0.0000'}
+ai_fmt_ci = {ci: fmt_ai[h] for ci, h in enumerate(hdrs_ai,1) if h in fmt_ai}
+ai_sc_ci  = next((ci for ci,h in enumerate(hdrs_ai,1) if h=='AI_Macro_Score'), None)
+ai_cp_cis = {ci for ci,h in enumerate(hdrs_ai,1) if h in cp_c_ai}
 for ri, row in df_out.iterrows():
     er = ri + 3
     for ci, h in enumerate(hdrs_ai, 1):
         val = _v(row.get(h, np.nan) if h in row.index else np.nan)
-        c = ws.cell(row=er, column=ci); c.value = val; c.font = Font(name='Arial', size=10)
-        if h in fmt_ai: c.number_format = fmt_ai[h]
-        if h == 'AI_Macro_Score' and val is not None:
+        c = ws.cell(row=er, column=ci); c.value = val
+        if ci in ai_fmt_ci: c.number_format = ai_fmt_ci[ci]
+        if ai_sc_ci and ci == ai_sc_ci and val is not None:
             try:
                 fv = float(val)
                 c.fill = FILL_POS if fv > 0.3 else (FILL_NEG if fv < -0.3 else FILL_AI)
             except: pass
-        if h in cp_c_ai and val is not None:
+        if ci in ai_cp_cis and val is not None:
             try:
                 fv = float(val)
-                c.fill = PatternFill('solid', fgColor='E8F5E9') if fv > 0 else (PatternFill('solid', fgColor='FFEBEE') if fv < 0 else PatternFill())
+                if   fv > 0: c.fill = PatternFill('solid', fgColor='E8F5E9')
+                elif fv < 0: c.fill = PatternFill('solid', fgColor='FFEBEE')
             except: pass
 ws.freeze_panes = 'A3'
 ws.auto_filter.ref = f'A2:{get_column_letter(len(hdrs_ai))}2'
@@ -849,9 +870,10 @@ for ci, h in enumerate(keep_cols, 1):
     c = ws.cell(row=2, column=ci, value=h)
     c.font = Font(name='Arial', bold=True, size=9)
     c.fill = FILL_ID; c.alignment = Alignment(horizontal='center', wrap_text=True)
+# 서식 없이 값만 기록 (속도/용량 최적화)
 for ri, row in df_out.iterrows():
     for ci, h in enumerate(keep_cols, 1):
-        ws.cell(row=ri+3, column=ci, value=_v(row.get(h, np.nan))).font = Font(name='Arial', size=9)
+        ws.cell(row=ri+3, column=ci, value=_v(row.get(h, np.nan)))
 ws.freeze_panes = 'A3'
 ws.auto_filter.ref = f'A2:{get_column_letter(len(keep_cols))}2'
 
