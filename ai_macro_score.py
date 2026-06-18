@@ -1,13 +1,29 @@
 """
 ai_macro_score.py
 ─────────────────
-현재 매크로 환경(2026년 4월) 기반 정성적 AI 점수 산출
+현재 매크로 환경(2026년 6월) 기반 정성적 AI 점수 산출
 
-[배경 논리]
-- Fed 인하 사이클 진행 중이나 트럼프 관세로 인플레이션 재점화 우려 공존
-- IG 스프레드 역사적으로 타이트 → 캐리 중심, 방어적 접근 유효
-- 커브 스티프닝 압력 (재정적자 우려) → 장기물 불리, 5-10년 유리
-- 관세 직격 섹터 (자동차, 소매, 소비재) 마진 압박, 공급망 불확실성
+[배경 논리 — 4월 대비 주요 변화]
+① 미중 무역 휴전 (5월 제네바 합의)
+   - 미국 대중 관세 145% → 30%, 중국 대미 관세 125% → 10% (90일 한시)
+   - 자동차 부품·전자·의류 등 관세 직격 섹터 공급망 압박 대폭 완화
+   - 단, 완성차 25% 관세는 유지 → 자동차 완전 회복은 아님
+
+② Fed 동결 유지 + 재정적자 우려 지속
+   - 인하 기대 후퇴 (시장: 2026년 1~2회 → 1회 이하)
+   - 커브 스티프닝 테마 지속, 10년+ 장기물 불리 유효
+   - 5~10년 구간 여전히 Sweet Spot
+
+③ IG 스프레드: 4월 급확대 후 재타이트닝
+   - OAS 4월 고점 대비 30~40bp 축소, 역사적 하위 25% 수준으로 복귀
+   - 캐리보다 선별적 섹터 알파 전략 중요
+
+④ 달러 약세 전환 (DXY -6% from April peak)
+   - 비미국 발행사(유럽·아시아 은행) 헤지비용 감소 → 상대적 우위
+
+⑤ 유가 하락 (WTI $75 → $65 구간)
+   - E&P, 오일서비스 스프레드 부담
+   - 파이프라인(수수료 구조) 상대적 방어
 
 [3개 세부 점수]
 1. Subgroup_Score  : Industry Subgroup 기반 세부 업종 점수 (-1 ~ +1)
@@ -28,22 +44,22 @@ import pandas as pd
 SUBGROUP_SCORE_MAP = {
 
     # ══ UTILITIES ══════════════════════════════════════════════════════
-    'Electric-Integrated':        0.85,  # 규제 수익, 관세 무관, 방어적 캐리
-    'Electric-Distribution':      0.85,  # 동일 논리
-    'Electric-Transmission':      0.80,  # 인프라 투자 수혜 (에너지 전환)
-    'Electric-Generation':        0.75,  # 약간 더 노출, 연료 비용 변동
+    'Electric-Integrated':        0.85,  # 규제 수익·관세 무관, 방어적 캐리 최상위
+    'Electric-Distribution':      0.85,  # 동일 — 타이트 스프레드 환경서도 상대 우위
+    'Electric-Transmission':      0.80,  # 전력망 인프라 투자 수혜 지속
+    'Electric-Generation':        0.75,  # 연료 비용 변동 있으나 방어적
     'Gas-Distribution':           0.80,  # 규제 유틸리티, 안정적 CF
-    'Water':                      0.85,  # 가장 방어적, 경기 무관
+    'Water':                      0.85,  # 가장 방어적, 경기·관세 완전 무관
     'Non-hazardous Waste Disp':   0.70,  # 방어적 서비스, 규제 수익
 
     # ══ HEALTHCARE ═════════════════════════════════════════════════════
-    'Medical-Drugs':              0.70,  # 방어적, 관세 일부 위험(원료) 있으나 우선순위 구매
-    'Medical-Hospitals':          0.75,  # 내수 서비스, 관세 무관
-    'Medical-HMO':                0.65,  # 보험료 인상 압박 vs 방어적 수익
-    'Medical-Biomedical/Gene':    0.60,  # 성장성 있으나 금리 민감
-    'Medical Products':           0.60,  # 관세 일부(의료기기 수입) 위험
+    'Medical-Drugs':              0.70,  # 방어적, 원료 관세 부담 있으나 가격 전가 가능
+    'Medical-Hospitals':          0.75,  # 내수 서비스, 관세 무관, 스프레드 안정
+    'Medical-HMO':                0.60,  # 메디케어 요율 협상 불확실 → 소폭 하향
+    'Medical-Biomedical/Gene':    0.55,  # 금리 고착화로 밸류에이션 부담 지속
+    'Medical Products':           0.60,  # 중국산 부품 관세 완화 → 소폭 개선
     'Medical Instruments':        0.55,
-    'Medical Labs&Testing Srv':   0.65,  # 방어적 서비스
+    'Medical Labs&Testing Srv':   0.65,  # 방어적 내수 서비스
     'Pharmacy Services':          0.60,
     'Medical-Whsle Drug Dist':    0.55,
     'Medical Imaging Systems':    0.55,
@@ -54,248 +70,259 @@ SUBGROUP_SCORE_MAP = {
     'Medical-Outptnt/Home Med':   0.60,
 
     # ══ BANKING / FINANCIAL ════════════════════════════════════════════
-    'Diversified Banking Inst':   0.55,  # 커브 스티프닝 수혜 (NIM 개선), 자본 충분
-    'Super-Regional Banks-US':    0.60,  # 미국 내수 강점, 관세 무관
+    'Diversified Banking Inst':   0.60,  # 커브 스티프닝 NIM 수혜, 자본비율 견조
+    'Super-Regional Banks-US':    0.65,  # 미국 내수 경기 상대적 견조 → 소폭 상향
     'Commer Banks-Eastern US':    0.55,
     'Commer Banks-Southern US':   0.55,
     'Commer Banks-Central US':    0.50,
     'Commer Banks-Western US':    0.50,
-    'Commer Banks Non-US':        0.30,  # 달러 강세, 지정학 리스크
-    'Money Center Banks':         0.45,  # 대형은행 규제 불확실성
-    'Fiduciary Banks':            0.65,  # NTRS, STT — 수탁 사업, 금리 수혜
-    'Life/Health Insurance':      0.50,  # 금리 상승 투자수익 개선 vs 언더라이팅
-    'Property/Casualty Ins':      0.55,  # 보험료 인상 사이클, 견조
+    'Commer Banks Non-US':        0.45,  # 달러 약세 전환 → 헤지비용 감소, 상향
+    'Money Center Banks':         0.50,  # 규제 불확실성 완화 기대 + 딜 활성화 기대
+    'Fiduciary Banks':            0.65,  # NTRS, STT — 수탁·금리 이중 수혜
+    'Life/Health Insurance':      0.50,  # 투자수익 개선 vs 언더라이팅 비용
+    'Property/Casualty Ins':      0.55,  # 보험료 인상 사이클 지속
     'Reinsurance':                0.50,
     'Multi-line Insurance':       0.45,
     'Insurance Brokers':          0.55,
     'Financial Guarantee Ins':    0.20,
-    'Finance-Invest Bnkr/Brkr':  0.35,  # 변동성 수혜 가능 vs 딜 감소
+    'Finance-Invest Bnkr/Brkr':  0.40,  # 무역 정상화 → M&A/IPO 회복 기대
     'Invest Mgmnt/Advis Serv':   0.40,
-    'Private Equity':             0.20,  # 유동성 리스크
-    'Finance-Credit Card':        0.30,  # 소비자 신용 악화 우려
+    'Private Equity':             0.25,  # 스프레드 타이트닝 → 출구 여건 개선
+    'Finance-Credit Card':        0.25,  # 소비자 신용 스트레스 지속, 중립 하향
     'Finance-Leasing Compan':     0.25,
-    'Finance-Auto Loans':         0.10,  # 관세 → 차량 가격 상승 → 연체율 우려
+    'Finance-Auto Loans':         0.20,  # 미중 관세 완화 → 차량가격 안정 기대, 상향
     'Finance-Other Services':     0.30,
-    'Finance-Mtge Loan/Banker':   0.20,  # 부동산 시장 불확실
-    'Finance-Consumer Loans':     0.10,
+    'Finance-Mtge Loan/Banker':   0.20,  # 금리 고착화로 부동산 부담 지속
+    'Finance-Consumer Loans':     0.15,
     'Venture Capital':            0.00,
-    'Investment Companies':       0.15,  # BDC 등 — 레버리지 리스크
+    'Investment Companies':       0.15,
 
-    # ══ ENERGY — 파이프라인 vs E&P 구분 ═══════════════════════════════
-    'Pipelines':                  0.30,  # 규제형 중간 처리 — 유가 덜 민감, 안정적
-    'Oil Comp-Integrated':        0.10,  # 유가 방향성 베팅, 단기 지정학 지지
-    'Oil Comp-Explor&Prodtn':    -0.10,  # 유가 하락 시 스프레드 급확대 위험
-    'Oil Refining&Marketing':    -0.05,  # 마진 변동성
-    'Oil-Field Services':        -0.20,  # 가장 변동성 큼, 사이클 말단
-    'Oil&Gas Drilling':          -0.25,
-    'Agricultural Chemicals':     0.20,  # 식품 안보 테마, 관세 수혜 가능
+    # ══ ENERGY ═════════════════════════════════════════════════════════
+    # 유가 WTI $65 수준으로 하락 → E&P·서비스 스프레드 부담 증가
+    'Pipelines':                  0.35,  # 수수료 구조, 유가 무관 — 소폭 상향
+    'Oil Comp-Integrated':        0.00,  # 유가 하락 중립화 → 하향
+    'Oil Comp-Explor&Prodtn':    -0.25,  # 유가 $65 → 잉여현금흐름 축소, 하향
+    'Oil Refining&Marketing':    -0.15,  # 크랙스프레드 마진 압박
+    'Oil-Field Services':        -0.35,  # 유가 하락 → Capex 축소 우려, 하향
+    'Oil&Gas Drilling':          -0.40,  # 동일 논리
+    'Agricultural Chemicals':     0.20,  # 식품 안보 테마 유지
 
-    # ══ CONSUMER CYCLICAL — 세분화 핵심 ═══════════════════════════════
-    # 자동차: 관세 직격탄 (25% 수입차 관세, 부품 공급망 타격)
-    'Auto-Cars/Light Trucks':    -0.90,  # Ford(F), Honda(HNDA), Toyota — 관세 최대 타격
-    'Auto-Med&Heavy Duty Trks':  -0.70,  # 상용차, 간접 타격
-    'Auto/Trk Prts&Equip-Orig':  -0.80,  # APTV 등 부품 — 공급망 붕괴 우려
-    'Retail-Automobile':         -0.60,  # 딜러 — 수요 위축
-    # 소매: 관세로 매입 원가 상승 → 마진 압박
-    'Retail-Discount':           -0.20,  # WMT, TGT — 가격 전가력 있으나 볼륨 리스크
-    'Retail-Building Products':  -0.30,  # LOW, HD — 주택 경기 민감
-    'Retail-Major Dept Store':   -0.50,  # 구조적 쇠퇴 + 관세
-    'Retail-Apparel/Shoe':       -0.60,  # 중국산 의존도 높음
-    'Retail-Auto Parts':         -0.40,  # AZO — 관세 원가 상승
-    'Retail-Sporting Goods':     -0.40,
-    'Retail-Consumer Electron':  -0.50,  # 중국 생산 의존
-    'Retail-Restaurants':        -0.10,  # MCD, DRI — 내수 서비스, 관세 덜 직접
-    'Retail-Gardening Prod':     -0.30,
-    # 호텔/카지노/크루즈: 경기 민감 but 관세 덜 직접
-    'Hotels&Motels':             -0.15,  # MAR, H — 여행 수요 관련
-    'Casino Hotels':             -0.20,
-    'Cruise Lines':              -0.25,  # 달러 강세, 여행 심리
-    # 온라인/이커머스
-    'E-Commerce/Products':       -0.20,  # AMZN은 관세 전가력 있으나 볼륨 우려
-    'E-Commerce/Services':       -0.10,
-    'Internet Content-Entmnt':    0.00,  # 내수 콘텐츠, 관세 무관
-    # 의류
-    'Apparel Manufacturers':     -0.55,  # NKE — 아시아 생산 의존
-    'Athletic Footwear':         -0.55,  # NKE 동일
-    # 레저
-    'Recreational Vehicles':     -0.40,
+    # ══ CONSUMER CYCLICAL ══════════════════════════════════════════════
+    # 미중 관세 90% → 30%로 대폭 인하 → 공급망 압박 완화
+    # 단, 완성차 25% 관세 유지 → 자동차 완전 회복은 아님
+    'Auto-Cars/Light Trucks':    -0.45,  # 부품 공급망 완화 but 완성차 관세 잔존, 대폭 상향
+    'Auto-Med&Heavy Duty Trks':  -0.30,  # 상용차 공급망 개선
+    'Auto/Trk Prts&Equip-Orig':  -0.25,  # 중국산 부품 관세 30%로 정상화, 대폭 상향
+    'Retail-Automobile':         -0.20,  # 차량 공급 개선 → 딜러 재고 정상화
+    'Retail-Discount':           -0.10,  # 수입 원가 하락 → 마진 부담 완화
+    'Retail-Building Products':  -0.25,  # 주택 경기 민감도 잔존
+    'Retail-Major Dept Store':   -0.35,  # 구조적 쇠퇴, 관세 완화로 소폭 개선
+    'Retail-Apparel/Shoe':       -0.20,  # 중국산 소싱 비용 급락, 대폭 상향
+    'Retail-Auto Parts':         -0.15,  # 관세 완화 수혜
+    'Retail-Sporting Goods':     -0.20,  # 동일
+    'Retail-Consumer Electron':  -0.10,  # 중국산 전자제품 관세 완화 대폭 수혜
+    'Retail-Restaurants':        -0.05,  # 내수 서비스, 관세 거의 무관
+    'Retail-Gardening Prod':     -0.20,
+    'Hotels&Motels':             -0.10,  # 달러 약세 → 인바운드 관광 개선
+    'Casino Hotels':             -0.15,
+    'Cruise Lines':              -0.15,  # 달러 약세 긍정적, 소폭 상향
+    'E-Commerce/Products':       -0.05,  # 관세 완화 → 상품 원가 정상화
+    'E-Commerce/Services':       -0.05,
+    'Internet Content-Entmnt':    0.05,  # 내수 콘텐츠 견조, 소폭 긍정
+    'Apparel Manufacturers':     -0.10,  # NKE 등 아시아 소싱 비용 대폭 완화
+    'Athletic Footwear':         -0.10,  # 동일
+    'Recreational Vehicles':     -0.25,  # 경기 민감, 금리 부담 잔존
 
-    # ══ CONSUMER NON-CYCLICAL — 세분화 ════════════════════════════════
-    # 식품/음료: 방어적이나 원자재 비용 + 관세 일부 영향
-    'Beverages-Non-alcoholic':    0.55,  # KO, KDP — 강한 가격 전가력
-    'Beverages-Wine/Spirits':     0.45,  # 관세 리스크 있으나 고급품 수요 견조
-    'Brewery':                    0.45,  # 국내 생산 多
-    'Food-Misc/Diversified':      0.50,  # GIS — 방어적
-    'Food-Retail':                0.40,  # KR — 방어적 but 마진 압박
+    # ══ CONSUMER NON-CYCLICAL ══════════════════════════════════════════
+    'Beverages-Non-alcoholic':    0.60,  # KO, KDP — 가격 전가력 + 관세 완화
+    'Beverages-Wine/Spirits':     0.50,  # 무역 정상화 → 수입 주류 부담 완화
+    'Brewery':                    0.50,  # 국내 생산 多, 방어적
+    'Food-Misc/Diversified':      0.55,  # GIS — 방어적, 원자재 부담 완화
+    'Food-Retail':                0.45,  # KR — 방어적
     'Food-Confectionery':         0.50,
     'Food-Meat Products':         0.45,
     'Food-Baking':                0.45,
     'Food-Wholesale/Distrib':     0.40,
     'Poultry':                    0.40,
     'Coffee':                     0.45,
-    # 개인위생/생활용품: 가격 전가력 우수
-    'Cosmetics&Toiletries':       0.55,  # PG — 가격 전가력 최강
+    'Cosmetics&Toiletries':       0.60,  # PG — 가격 전가력 + 관세 완화로 원가 개선
     'Soap&Cleaning Prepar':       0.50,
     'Consumer Products-Misc':     0.40,
-    # 담배: 방어적 캐리, 규제 리스크
-    'Tobacco':                    0.60,  # MO — 높은 캐리, 방어적 현금흐름
-    # 농업/화학
+    'Tobacco':                    0.60,  # MO — 방어적 CF, 캐리 매력
     'Agricultural Operations':    0.35,
 
     # ══ TECHNOLOGY ═════════════════════════════════════════════════════
-    # 반도체: 관세 + 수출 통제 + 고밸류에이션 위험
-    'Electronic Compo-Semicon':  -0.30,  # 중국 수출 통제, 재고 사이클
-    'Semicon Compo-Intg Circu':  -0.25,
-    'Semiconductor Equipment':   -0.35,  # ASML 등 수출 통제 직격
-    # 소프트웨어: 금리 민감 but 관세 무관, 경기 방어적
-    'Enterprise Software/Serv':   0.10,  # 구독 모델, 관세 무관
-    'Applications Software':      0.05,
-    'Computer Services':          0.15,
-    'Data Processing/Mgmt':       0.20,  # Visa/MA 류 — 안정적
-    'Computer Aided Design':      0.00,
-    'Software Tools':             0.00,
-    'E-Marketing/Info':           0.00,
-    'Decision Support Softwar':   0.05,
-    # 하드웨어: 공급망 중국 의존
-    'Computers':                 -0.15,  # 관세 원가 상승
-    'Computers-Memory Devices':  -0.20,
-    'Computers-Other':           -0.10,
-    'Electronic Connectors':     -0.20,
-    'Electronic Compo-Misc':     -0.15,
-    'Electronic Parts Distrib':  -0.10,
-    'Electronic Measur Instr':   -0.10,
-    'Electronic Secur Devices':  -0.05,
+    # 미중 관세 대폭 완화 → 하드웨어·반도체 공급망 정상화
+    # 단, 첨단 반도체 수출 통제는 유지 → 장비주 제한적 회복
+    'Electronic Compo-Semicon':   0.05,  # 관세 완화, 재고 사이클 바닥 확인, 대폭 상향
+    'Semicon Compo-Intg Circu':   0.05,  # 동일
+    'Semiconductor Equipment':   -0.10,  # 수출 통제 유지로 완전 회복 아님
+    'Enterprise Software/Serv':   0.20,  # 구독 모델, 관세 무관, AI 수요 견조
+    'Applications Software':      0.15,  # AI 통합 모멘텀
+    'Computer Services':          0.20,
+    'Data Processing/Mgmt':       0.25,  # Visa/MA — 거래 회복 기대
+    'Computer Aided Design':      0.10,
+    'Software Tools':             0.10,
+    'E-Marketing/Info':           0.05,
+    'Decision Support Softwar':   0.10,
+    'Computers':                  0.05,  # 관세 완화 수혜, 상향
+    'Computers-Memory Devices':  -0.05,  # 공급과잉 우려 잔존
+    'Computers-Other':            0.00,
+    'Electronic Connectors':      0.00,  # 관세 완화로 중립
+    'Electronic Compo-Misc':      0.00,
+    'Electronic Parts Distrib':   0.00,
+    'Electronic Measur Instr':   -0.05,
+    'Electronic Secur Devices':   0.00,
     'Electronic Forms':           0.00,
-    'Networking Products':       -0.10,
-    'Wireless Equipment':        -0.15,
-    'Telecom Eq Fiber Optics':   -0.10,
-    'Telecommunication Equip':   -0.10,
-    'Industrial Automat/Robot':  -0.10,  # 관세 but 리쇼어링 수혜 측면도
-    'Instruments-Controls':      -0.05,
+    'Networking Products':        0.00,
+    'Wireless Equipment':        -0.05,
+    'Telecom Eq Fiber Optics':   -0.05,
+    'Telecommunication Equip':   -0.05,
+    'Industrial Automat/Robot':   0.00,  # 리쇼어링 수혜 + 관세 완화 균형
+    'Instruments-Controls':       0.00,
 
     # ══ COMMUNICATIONS ════════════════════════════════════════════════
-    'Telephone-Integrated':       0.10,  # AT&T류 — 방어적 but 부채 많음
-    'Cellular Telecom':           0.05,
-    'Cable/Satellite TV':         0.00,  # 코드컷팅 구조적 압박
+    'Telephone-Integrated':       0.15,  # AT&T — 부채 관리 진전, 소폭 상향
+    'Cellular Telecom':           0.10,
+    'Cable/Satellite TV':         0.00,  # 코드컷팅 구조적 압박 지속
     'Multimedia':                 0.00,
     'Broadcast Serv/Program':     0.00,
-    'Advertising Agencies':      -0.15,  # 경기 민감 광고 집행
-    'Advertising Services':      -0.15,
-    'Telecom Services':           0.10,
-    'Web Portals/ISP':            0.00,
+    'Advertising Agencies':      -0.05,  # 경기 우려 완화로 광고비 소폭 회복
+    'Advertising Services':      -0.05,
+    'Telecom Services':           0.15,
+    'Web Portals/ISP':            0.05,
 
     # ══ INDUSTRIAL / CAPITAL GOODS ════════════════════════════════════
-    'Aerospace/Defense':          0.40,  # 국방예산 증가, 지정학 수혜
-    'Aerospace/Defense-Equip':    0.35,
-    'Machinery-Farm':             0.20,  # 식품 안보, 농업 투자
-    'Machinery-General Indust':  -0.10,  # 관세 공급망 불확실
-    'Machinery-Constr&Mining':   -0.10,
-    'Machinery-Pumps':           -0.05,
-    'Machinery-Electric Util':    0.10,  # 전력망 투자 수혜
-    'Tools-Hand Held':           -0.10,
-    'Diversified Manufact Op':   -0.05,  # CMI 등 — 혼재
-    'Industrial Gases':           0.30,  # 에너지 전환 인프라, 안정적
-    'Chemicals-Diversified':     -0.10,  # 원자재 비용 변동
-    'Chemicals-Specialty':       -0.05,
-    'Coatings/Paint':            -0.10,
+    'Aerospace/Defense':          0.50,  # NATO 지출 증가 지속, 백로그 사상 최대
+    'Aerospace/Defense-Equip':    0.45,  # 동일
+    'Machinery-Farm':             0.20,  # 농업 투자 유지
+    'Machinery-General Indust':   0.00,  # 관세 완화로 공급망 부담 경감, 상향
+    'Machinery-Constr&Mining':   -0.05,
+    'Machinery-Pumps':            0.00,
+    'Machinery-Electric Util':    0.20,  # 전력망·AI 데이터센터 투자 수혜
+    'Tools-Hand Held':           -0.05,
+    'Diversified Manufact Op':    0.00,  # 관세 완화로 중립
+    'Industrial Gases':           0.35,  # 에너지 전환·수소 인프라 수혜
+    'Chemicals-Diversified':     -0.05,  # 원자재 비용 안정화
+    'Chemicals-Specialty':        0.00,
+    'Coatings/Paint':            -0.05,
     'Agricultural Chemicals':     0.20,
-    'Containers-Paper/Plastic':  -0.20,  # 중국산 경쟁 + 원가 압박
-    'Paper&Related Products':    -0.15,
-    'Commercial Serv-Finance':    0.10,
-    'Commercial Services':        0.05,
-    'Consulting Services':        0.10,
+    'Containers-Paper/Plastic':  -0.10,  # 관세 완화로 부담 일부 경감
+    'Paper&Related Products':    -0.10,
+    'Commercial Serv-Finance':    0.15,
+    'Commercial Services':        0.10,
+    'Consulting Services':        0.15,
     'Non-Profit Charity':         0.00,
-    'Distribution/Wholesale':    -0.10,
-    'Office Automation&Equip':   -0.15,
-    'Office Supplies&Forms':     -0.15,
-    'Bldg Prod-Cement/Aggreg':   -0.10,  # 건설 경기 민감
-    'Bldg Prod-Air&Heating':     -0.10,
-    'Bldg Prod-Wood':            -0.15,
-    'Bldg&Construct Prod-Misc':  -0.10,
-    'Bldg-Residential/Commer':   -0.20,  # 금리 민감
+    'Distribution/Wholesale':    -0.05,  # 관세 완화 수혜
+    'Office Automation&Equip':   -0.05,
+    'Office Supplies&Forms':     -0.10,
+    'Bldg Prod-Cement/Aggreg':   -0.10,
+    'Bldg Prod-Air&Heating':     -0.05,
+    'Bldg Prod-Wood':            -0.10,
+    'Bldg&Construct Prod-Misc':  -0.05,
+    'Bldg-Residential/Commer':   -0.15,  # 금리 고착화로 부동산 부담 지속
     'Building-Maint&Service':    -0.05,
-    'Shipbuilding':               0.20,  # 국방/해운 수요
-    'Power Conv/Supply Equip':    0.10,
+    'Shipbuilding':               0.25,  # 국방·해운 발주 증가
+    'Power Conv/Supply Equip':    0.20,  # 데이터센터 전력 수요 폭증 수혜
 
     # ══ TRANSPORTATION ════════════════════════════════════════════════
-    'Transport-Rail':             0.30,  # 관세 → 물류 재편 수혜 (국내 철도)
-    'Transport-Services':         0.00,  # 혼재
-    'Transport-Equip&Leasng':    -0.10,  # 항공기 리스 — 여행 수요 연동
-    'Transport-Truck':           -0.10,  # 연료 비용, 경기 민감
-    'Transport-Marine':          -0.10,
-    'Airlines':                  -0.40,  # 수요 불확실, 연료 변동성
+    'Transport-Rail':             0.30,  # 국내 물류 재편 수혜 유지
+    'Transport-Services':         0.05,  # 무역 회복 기대
+    'Transport-Equip&Leasng':    -0.05,  # 여행 수요 회복 부분 상쇄
+    'Transport-Truck':           -0.05,  # 유가 하락 연료비 절감 → 소폭 개선
+    'Transport-Marine':          -0.05,  # 무역 회복 기대 vs 운임 하락
+    'Airlines':                  -0.25,  # 달러 약세·유가 하락 긍정, 수요 회복 기대
 
     # ══ MATERIALS ═════════════════════════════════════════════════════
-    'Steel-Producers':            0.20,  # 관세 보호 수혜 (국내 철강 25% 관세)
+    'Steel-Producers':            0.15,  # 관세 보호 유지 but 수요 우려로 소폭 하향
     'Steel Pipe&Tube':            0.15,
     'Metal-Iron':                 0.10,
-    'Metal-Aluminum':             0.10,  # 관세 수혜 but 수요 우려
-    'Metal-Copper':               0.00,  # 전기차/전력망 수요 vs 경기 둔화
-    'Metal-Diversified':          0.00,
-    'Diversified Minerals':       0.00,
-    'Gold Mining':                0.30,  # 불확실성 헤지 자산
+    'Metal-Aluminum':             0.10,
+    'Metal-Copper':               0.10,  # 전력망·AI 인프라 수요 기대 상향
+    'Metal-Diversified':          0.05,
+    'Diversified Minerals':       0.05,
+    'Gold Mining':                0.25,  # 불확실성 헤지 수요 일부 감소 → 소폭 하향
     'Metal Processors&Fabrica':   0.05,
 
     # ══ 기타 ══════════════════════════════════════════════════════════
-    'Schools':                    0.40,  # 교육 — 방어적 내수
-    'Toys':                      -0.40,  # 관세 직격 (중국 생산)
-    'Entertainment Software':     0.00,  # 내수 콘텐츠, 중립
-    'Engineering/R&D Services':   0.15,  # 국방/인프라 연계 가능
-    'Vitamins&Nutrition Prod':    0.30,  # 헬스케어 방어적
-    'Rental Auto/Equipment':     -0.10,
-    'Mach Tools&Rel Products':   -0.10,
-    'Motorcycle/Motor Scooter':  -0.50,  # 관세 타격
-    'Chemicals-Plastics':        -0.15,
-    'Miscellaneous Manufactur':  -0.10,
+    'Schools':                    0.40,  # 방어적 내수, 변동 없음
+    'Toys':                      -0.10,  # 관세 대폭 완화 → 중국산 압박 경감, 대폭 상향
+    'Entertainment Software':     0.10,  # 내수 콘텐츠, 소폭 긍정
+    'Engineering/R&D Services':   0.20,  # 국방·AI 인프라 연계 상향
+    'Vitamins&Nutrition Prod':    0.30,
+    'Rental Auto/Equipment':     -0.05,
+    'Mach Tools&Rel Products':   -0.05,
+    'Motorcycle/Motor Scooter':  -0.20,  # 관세 완화로 대폭 상향
+    'Chemicals-Plastics':        -0.10,
+    'Miscellaneous Manufactur':  -0.05,
 
     # ══ REAL ESTATE (REITs) ════════════════════════════════════════════
-    'REITS-Industrial':           0.10,  # 물류/이커머스 수요
-    'REITS-Warehouse/Industr':    0.20,  # 리쇼어링 수혜 가능
-    'REITS-Diversified':         -0.10,  # 금리 민감
-    'REITS-Apartments':          -0.05,  # 임대 수요 견조 but 금리 부담
-    'REITS-Shopping Centers':    -0.30,  # 소매 구조적 쇠퇴
-    'REITS-Regional Malls':      -0.40,  # 동일
-    'REITS-Office Property':     -0.35,  # 재택근무 구조적 수요 감소
-    'REITS-Health Care':          0.30,  # 고령화, 방어적
+    'REITS-Industrial':           0.20,  # 리쇼어링·이커머스 물류 수요 상향
+    'REITS-Warehouse/Industr':    0.25,  # 동일, 데이터센터 수요 추가
+    'REITS-Diversified':         -0.10,  # 금리 고착화
+    'REITS-Apartments':          -0.05,  # 임대 수요 견조
+    'REITS-Shopping Centers':    -0.25,  # 소매 구조적 쇠퇴, 관세 완화로 소폭 개선
+    'REITS-Regional Malls':      -0.35,  # 구조적 쇠퇴 지속
+    'REITS-Office Property':     -0.30,  # 재택근무 정착, 일부 AI사 오피스 수요는 긍정
+    'REITS-Health Care':          0.35,  # 고령화 테마 강화, 상향
     'REITS-Storage':              0.10,
-    'REITS-Single Tenant':        0.00,
-    'REITS-Hotels':              -0.20,
-    'REITS-Manufactured Homes':   0.00,
-    'REITS-Mortgage':            -0.20,  # 금리 민감
+    'REITS-Single Tenant':        0.05,
+    'REITS-Hotels':              -0.10,  # 달러 약세 인바운드 기대
+    'REITS-Manufactured Homes':   0.05,
+    'REITS-Mortgage':            -0.20,  # 금리 고착화
     'Real Estate Mgmnt/Servic':  -0.10,
 }
 
 # ─── 2. 만기(OAD) 기반 점수 ──────────────────────────────────────────────────
 def maturity_score(oad):
     """
-    OAD 기반 만기 포지셔닝 점수
-    커브 스티프닝 환경: 재정적자 우려로 장기 프리미엄 상승
-    Sweet spot: 5-10년 (OAD 4-9)
+    OAD 기반 만기 포지셔닝 점수 (2026년 6월 업데이트)
+
+    4월 대비 변화:
+    - One Big Beautiful Bill 하원 통과 → 향후 10년 재정적자 +$3~4T
+    - 무디스 미국 신용등급 강등 (Aaa → Aa1) → 장기 프리미엄 재부각
+    - 30년물 5.2~5.3% 고압 유지 → 커브 스티프닝 심화
+    - 10~13년 구간: 중립 → 소폭 비선호로 하향
+    - Sweet spot 4~7년 유지, 7~10년 선호 유지
+
+    [OAD 구간별]
+    <2    : 0.00  초단기, 중립
+    2~4   : 0.35  단기, 금리 리스크 낮음 (소폭 상향 — Fed anchor)
+    4~7   : 1.00  최선호 (불변)
+    7~10  : 0.65  선호 (소폭 하향 — 장기 프리미엄 영향 시작)
+    10~13 : -0.20  비선호 (4월 중립 0.00 → 하향 — 재정 압박)
+    13~16 : -0.65  비선호 강화 (4월 -0.50 → 하향)
+    16+   : -1.00  최대 비선호 (불변)
     """
     if pd.isna(oad):
         return 0.0
     oad = float(oad)
-    if oad < 2:       return  0.00   # 초단기: 중립
-    elif oad < 4:     return  0.30   # 단기: 금리 리스크 낮음
-    elif oad < 7:     return  1.00   # 5-7년: 최선호
-    elif oad < 10:    return  0.70   # 7-10년: 선호
-    elif oad < 13:    return  0.00   # 10-13년: 중립
-    elif oad < 16:    return -0.50   # 13-16년: 비선호
-    else:             return -1.00   # 16년+: 비선호
+    if oad < 2:       return  0.00
+    elif oad < 4:     return  0.35
+    elif oad < 7:     return  1.00
+    elif oad < 10:    return  0.65
+    elif oad < 13:    return -0.20
+    elif oad < 16:    return -0.65
+    else:             return -1.00
 
 # ─── 3. 등급 안전마진 점수 ───────────────────────────────────────────────────
 RATING_BUFFER_MAP = {
-    'AAA':  0.50,
+    # 2026년 6월 업데이트
+    # IG 스프레드 재타이트닝 (역사적 하위 25%):
+    #   → 등급 간 스프레드 차이 축소 → 하위 등급의 리스크 대비 보상 감소
+    #   → 90일 관세 휴전 종료 시나리오 재부각되면 BBB 하단 낙폭 확대 위험
+    # 무디스 강등 이후 AA·A 등급의 상대적 안전 프리미엄 재부각
+    'AAA':  0.40,   # 가장 타이트 → 캐리 매력 희박
     'AA1':  0.55,
     'AA2':  0.55,
     'AA3':  0.50,
-    'A1':   0.70,   # A등급 sweet spot: 안전 + 타이트하지 않음
+    'A1':   0.70,   # sweet spot: 캐리 + 안전마진 + 무디스 강등 이후 상대 매력
     'A2':   0.70,
-    'A3':   0.65,
-    'BAA1': 0.25,
-    'BAA2': 0.05,
-    'BAA3':-0.65,   # BBB-: Fallen Angel 경계선
-    'BA1': -0.85,
+    'A3':   0.60,   # A3: BBB와의 격차 인식, 소폭 하향
+    'BAA1': 0.15,   # 스프레드 좁아진 상태에서 버퍼 부족
+    'BAA2':-0.15,   # 타이트 구간서 대칭적 위험 부각
+    'BAA3':-0.80,   # BBB-: 스프레드 타이트 + 90일 협상 리스크 → Fallen Angel 위험 최고조
+    'BA1': -0.90,
     'BA2': -1.00,
     'BA3': -1.00,
     'B1':  -1.00,
