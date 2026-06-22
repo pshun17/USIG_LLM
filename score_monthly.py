@@ -27,7 +27,30 @@ import requests
 import yfinance as yf
 import urllib3
 
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+try:
+    # 회사 네트워크 SSL 검증 우회 (self-signed cert 환경 대응)
+    import requests as _req
+    from huggingface_hub import configure_http_backend as _cfg_hf
+    def _no_ssl_session():
+        s = _req.Session(); s.verify = False; return s
+    _cfg_hf(backend_factory=_no_ssl_session)
+
+    from transformers import pipeline as _hf_pipeline
+    _finbert = _hf_pipeline(
+        "sentiment-analysis",
+        model="ProsusAI/finbert",
+        tokenizer="ProsusAI/finbert",
+        truncation=True, max_length=512,
+        device=-1,      # CPU
+        batch_size=16,
+    )
+    USE_FINBERT = True
+    print("[Sentiment] FinBERT loaded (ProsusAI/finbert)")
+except Exception as _e:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VaderAnalyzer
+    _vader = _VaderAnalyzer()
+    USE_FINBERT = False
+    print(f"[Sentiment] FinBERT 로드 실패 ({_e}) → VADER fallback")
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -346,7 +369,6 @@ print(f"  Eq_Fund_Score: {n_fund:,} non-null  "
 # ══════════════════════════════════════════════════════════════
 print("\n[6/7] Sentiment_Score (Yahoo/Google News VADER + Trends)...")
 
-analyzer = SentimentIntensityAnalyzer()
 sess_news = requests.Session()
 sess_news.verify = False
 sess_news.headers.update({'User-Agent': API_HEADERS['User-Agent'],
@@ -412,19 +434,52 @@ def fetch_google_news(ticker, company=''):
         except: pass
     return hs
 
-def vader_score(headlines):
+_FINBERT_LABEL = {'positive': 1.0, 'negative': -1.0, 'neutral': 0.0}
+
+def _raw_score(text):
+    """헤드라인 한 건 → [-1, +1] 점수. FinBERT 우선, 없으면 VADER."""
+    if USE_FINBERT:
+        try:
+            r = _finbert(text[:512])[0]
+            label = r['label'].lower()
+            score = _FINBERT_LABEL.get(label, 0.0) * r['score']
+            return score
+        except:
+            pass
+    # VADER fallback
+    return _vader.polarity_scores(text)['compound']
+
+def finbert_score(headlines):
+    """
+    헤드라인 리스트 → (weighted_mean, count, top_headline, top_score)
+
+    recency weight: exp(-days / 30)  — 30일 반감기 (채권 투자자 시계)
+    """
     if not headlines: return None, 0, '', None
     ts = AS_OF_DT.timestamp()
+
+    # FinBERT batch inference (USE_FINBERT=True 시 배치로 한 번에)
+    texts = [h['title'][:512] for h in headlines]
+    if USE_FINBERT:
+        try:
+            results = _finbert(texts)
+            raw_scores = [_FINBERT_LABEL.get(r['label'].lower(), 0.0) * r['score']
+                          for r in results]
+        except:
+            raw_scores = [_vader.polarity_scores(t)['compound'] for t in texts]
+    else:
+        raw_scores = [_vader.polarity_scores(t)['compound'] for t in texts]
+
     scores, weights, titles = [], [], []
-    for h in headlines:
-        c = analyzer.polarity_scores(h['title'])['compound']
-        days = max(0, (ts - h['pub_time']) / 86400) if h.get('pub_time') else 7
-        w = math.exp(-days / 14.0)
+    for h, c in zip(headlines, raw_scores):
+        days = max(0, (ts - h['pub_time']) / 86400) if h.get('pub_time') else 14
+        w = math.exp(-days / 30.0)   # 30일 반감기 (기존 14일 → 확장)
         scores.append(c); weights.append(w); titles.append(h['title'])
+
     tw = sum(weights)
     if tw == 0: return None, len(headlines), '', None
     wm = sum(s*w for s, w in zip(scores, weights)) / tw
-    mi = max(range(len(scores)), key=lambda i: abs(scores[i]*weights[i]))
+    mi = max(range(len(scores)), key=lambda i: abs(scores[i] * weights[i]))
     return wm, len(headlines), titles[mi], round(scores[mi], 4)
 
 # Build ticker→company map
@@ -447,7 +502,7 @@ for i, tk in enumerate(news_tickers):
         gn = fetch_google_news(tk, ticker_to_company.get(tk, ''))
         existing = {h['title'] for h in yh}
         merged = yh + [h for h in gn if h['title'] not in existing]
-        raw, cnt, top_h, top_s = vader_score(merged)
+        raw, cnt, top_h, top_s = finbert_score(merged)
         news_results[tk] = {'raw': raw, 'count': cnt, 'google_count': len(gn),
                             'top_headline': top_h, 'top_score': top_s}
     except:
@@ -500,7 +555,6 @@ df['Trends_Momentum']      = np.nan
 df['Trends_Factor']        = np.nan
 df['News_Generic_Flag']    = ''
 
-TRENDS_SCALE = 0.3
 for idx, row in df.iterrows():
     t = row.get('_clean_news_ticker')
     if not t or t not in news_results: continue
@@ -513,19 +567,33 @@ for idx, row in df.iterrows():
     if t in trends_results and trends_results[t].get('momentum') is not None:
         tm = trends_results[t]['momentum']
         df.at[idx, 'Trends_Momentum'] = tm
-        df.at[idx, 'Trends_Factor']   = np.clip(tm * TRENDS_SCALE, -1, 1)
+        # Trends_Factor: 뉴스 감성과 같은 방향이면 신뢰도 부스트, 반대면 감쇄
+        # +1(완전 동방향 확신) ~ -1(완전 역방향 불신)
+        df.at[idx, 'Trends_Factor']   = float(np.clip(tm, -1, 1))
     if nr['raw'] is None and nr['count'] > 0:
         df.at[idx, 'News_Generic_Flag'] = 'GENERIC (invalidated)'
     elif nr['raw'] is None:
         df.at[idx, 'News_Generic_Flag'] = 'No news data'
 
-# Sentiment_Score = VADER + Trends 합산
+# Sentiment_Score
+# Trends를 직접 더하지 않고 신뢰도 가중치로 사용:
+#   - 뉴스↑ + Trends↑ (같은 방향): 신뢰도 높음 → boost
+#   - 뉴스↑ + Trends↓ (반대 방향): 혼재 시그널 → 감쇄
+#   - Trends 없음: 뉴스 원본값 그대로
+# confidence = 1 + TRENDS_CONF * sign_match  (0.7 ~ 1.3 범위)
+TRENDS_CONF = 0.30
 df['Sentiment_Score'] = np.nan
 has_news = df['News_Sentiment_Raw'].notna()
-df.loc[has_news, 'Sentiment_Score'] = (
-    df.loc[has_news, 'News_Sentiment_Raw'] * 0.70 +
-    df.loc[has_news, 'Trends_Factor'].fillna(0) * 0.30
-).clip(-1, 1)
+news_raw   = df.loc[has_news, 'News_Sentiment_Raw']
+trends_fac = df.loc[has_news, 'Trends_Factor']
+
+sign_match = np.where(
+    trends_fac.isna(),
+    0.0,                                          # Trends 없음 → 중립
+    np.sign(news_raw) * np.sign(trends_fac)       # 같은 방향+1, 반대-1
+)
+confidence = 1.0 + TRENDS_CONF * sign_match       # 0.70 ~ 1.30
+df.loc[has_news, 'Sentiment_Score'] = (news_raw * confidence).clip(-1, 1)
 
 # Cross-sectional rank normalize
 sent_mask = mask & df['Sentiment_Score'].notna()
@@ -848,7 +916,7 @@ ws.row_dimensions[mv_subhdr].height = 18
 # ── Sheet 6: Score_Integrated ─────────────────────────────────
 ws = mks('Score_Integrated')
 id_c = ['class','Des','ISIN','Ticker','Cpn','Yield to Worst','OAD','OAS','LQA','Issuer Rtg','BCLASS3','Industry Subgroup']
-cp_c = ['Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score','AI_Macro_Score']
+cp_c = ['Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score_clean','AI_Macro_Score']
 sc_c = ['Integrated_Score','Integrated_Rank_in_Class','Top_Pick_Flag']
 hdrs = id_c + cp_c + sc_c
 wtitle(ws,f'Integrated Score  |  Bond_TR+EqMom+EqFund+Sentiment+AI_Macro (×0.20 each)  |  As of {AS_OF}',len(hdrs))
@@ -856,10 +924,10 @@ whdrs(ws, hdrs, set(id_c), set(cp_c), set(sc_c))
 wrows(ws, hdrs, set(sc_c),
       {'Cpn':'0.000','Yield to Worst':'0.000','OAD':'0.00','OAS':'0.0','LQA':'0.0',
        'Bond_TR_Score':'0.0000','Eq_Mom_Score':'0.0000','Eq_Fund_Score':'0.0000',
-       'Sentiment_Score':'0.0000','AI_Macro_Score':'0.0000',
+       'Sentiment_Score_clean':'0.0000','AI_Macro_Score':'0.0000',
        'Integrated_Score':'0.0000','Integrated_Rank_in_Class':'0'},
       flag_col='Top_Pick_Flag',
-      color_cols={'Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score','AI_Macro_Score'})
+      color_cols={'Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score_clean','AI_Macro_Score'})
 wfin(ws,len(hdrs),{1:12,2:28,3:16,4:10,5:7,6:7,7:7,8:7,9:8,10:10,11:14,12:26,
                     13:13,14:13,15:13,16:13,17:13,18:13,19:10,20:14})
 

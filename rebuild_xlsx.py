@@ -265,7 +265,7 @@ ws.row_dimensions[mv_sh].height=18
 print('  Score_Integrated...')
 ws=mks('Score_Integrated')
 id_c=['class','Des','ISIN','Ticker','Cpn','Yield to Worst','OAD','OAS','LQA','Issuer Rtg','BCLASS3','Industry Subgroup']
-cp_c=['Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score','AI_Macro_Score']
+cp_c=['Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score_clean','AI_Macro_Score']
 sc_c=['Integrated_Score','Integrated_Rank_in_Class','Top_Pick_Flag']
 hdrs=id_c+cp_c+sc_c
 wtitle(ws,f'Integrated Score  |  5 Components x0.20  |  As of {AS_OF}',len(hdrs))
@@ -273,10 +273,10 @@ whdrs(ws,hdrs,set(id_c),set(cp_c),set(sc_c))
 wrows(ws,hdrs,set(sc_c),
       {'Cpn':'0.000','Yield to Worst':'0.000','OAD':'0.00','OAS':'0.0','LQA':'0.0',
        'Bond_TR_Score':'0.0000','Eq_Mom_Score':'0.0000',
-       'Eq_Fund_Score':'0.0000','Sentiment_Score':'0.0000','AI_Macro_Score':'0.0000',
+       'Eq_Fund_Score':'0.0000','Sentiment_Score_clean':'0.0000','AI_Macro_Score':'0.0000',
        'Integrated_Score':'0.0000','Integrated_Rank_in_Class':'0'},
       flag_col='Top_Pick_Flag',
-      color_cols={'Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score','AI_Macro_Score'})
+      color_cols={'Bond_TR_Score','Eq_Mom_Score','Eq_Fund_Score','Sentiment_Score_clean','AI_Macro_Score'})
 wfin(ws,len(hdrs),{1:12,2:28,3:16,4:10,5:7,6:7,7:7,8:7,9:8,10:10,11:14,12:26,13:13,14:13,15:13,16:13,17:13,18:13,19:10,20:14})
 
 # ── Detail_Scored (서식 없이 값만)
